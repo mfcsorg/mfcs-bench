@@ -1,0 +1,8 @@
+{
+    "qwen-plus-latest": {
+        "name": "QwenPlus",
+        "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "description": "QwenPlus",
+        "api_key": ""
+    }
+}

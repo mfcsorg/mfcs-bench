@@ -1,0 +1,26 @@
+{
+    "mfcs-python": {
+        "command": "python",
+        "args": [
+            "apps/mfcs-python/example_app.py",
+            "--model=./models/config.json",
+            "--model_name=qwen-plus-latest",
+            "--tools=./tools/config.json",
+            "--tools_index=0",
+            "--test_cases=./test_cases",
+            "--test_case_name=test_case_chat.json"
+        ]
+    },
+    "mfcs-js": {
+        "command": "node",
+        "args": [
+            "apps/mfcs-js/example_app.js",
+            "--models=./models/config.json",
+            "--model_name=qwen-plus-latest",
+            "--tools=./tools/config.json",
+            "--tools_index=0",
+            "--test_cases=./test_cases",
+            "--test_case_name=test_case_chat.json"
+        ]
+    }
+}

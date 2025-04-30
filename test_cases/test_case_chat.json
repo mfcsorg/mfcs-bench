@@ -1,0 +1,9 @@
+{
+    "input": {
+        "user": "hello world"
+    },
+    "expected_output": {
+        "semantic_match": "hello world"
+    },
+    "description": "hello world"
+}
