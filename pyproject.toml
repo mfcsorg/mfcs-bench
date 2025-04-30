@@ -7,7 +7,7 @@ name = "mfcs-bench"
 version = "0.1.0"
 description = "A benchmarking tool for MFCS (Model Function Calling System)"
 authors = [
-    {name = "Your Name", email = "your.email@example.com"},
+    {name = "Your Name", email = "shisdq@gmail.com"},
 ]
 readme = "README.md"
 requires-python = ">=3.7"
@@ -23,8 +23,8 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/mfcs-bench"
-Repository = "https://github.com/yourusername/mfcs-bench.git"
+Homepage = "https://github.com/mfcsorg/mfcs-bench"
+Repository = "https://github.com/mfcsorg/mfcs-bench.git"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
