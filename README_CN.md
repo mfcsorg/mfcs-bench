@@ -84,7 +84,7 @@ mfcs-bench/
     },
     "expected_output": {
         "semantic_match": "预期响应",
-        "contains_tool": true
+        "contains_tool": "get_weather"
     },
     "description": "测试用例描述"
 }

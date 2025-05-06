@@ -84,7 +84,7 @@ Test cases are defined in JSON format:
     },
     "expected_output": {
         "semantic_match": "expected response",
-        "contains_tool": true
+        "contains_tool": "get_weather"
     },
     "description": "Test case description"
 }
