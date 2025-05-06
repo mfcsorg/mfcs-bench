@@ -1,12 +1,12 @@
 {
     "mfcs-python": {
         "command": "python",
+        "stream": true,
         "args": [
-            "apps/mfcs-python/example_app.py",
+            "apps/mfcs-python/mfcs-python.py",
             "--model=./models/config.json",
             "--model_name=qwen-plus-latest",
             "--tools=./tools/config.json",
-            "--tools_index=0",
             "--test_cases=./test_cases",
             "--test_case_name=test_case_chat.json"
         ]

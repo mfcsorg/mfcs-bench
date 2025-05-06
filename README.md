@@ -33,6 +33,7 @@ pip install -e .
 3. Run the benchmark:
 
 ```bash
+pip install -r apps/mfcs-python/requirements.txt
 python run_benchmark.py
 ```
 

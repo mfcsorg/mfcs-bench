@@ -1,15 +1,102 @@
 """
 Response analyzer for benchmark results
 """
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import logging
 
 logger = logging.getLogger(__name__)
 
 class ResponseAnalyzer:
     """Analyzes benchmark responses"""
+    
+    DEFAULT_ANALYSIS = {
+        "tool_usage": "none",
+        "required_content": "none",
+        "semantic_match": "none",
+        "accuracy": 0.0,
+        "response_time": 0.0,
+        "token_usage": {"prompt": 0, "completion": 0},
+        "success": False,
+        "model": "unspecified"
+    }
 
-    def analyze_responses(self, responses: List[Dict], test_case: Dict) -> Dict[str, Any]:
+    def _collect_response_data(self, responses: List[Dict[str, Any]]) -> tuple[List[str], List[str], str, List[Dict], Dict[str, int]]:
+        """
+        Collect and process response data
+        
+        Args:
+            responses: List of response dictionaries
+            
+        Returns:
+            Tuple containing:
+            - all_content: List of content strings
+            - all_reasoning_content: List of reasoning content strings
+            - combined_content: Combined streamed content string
+            - tool_calls: List of tool call dictionaries
+            - token_usage: Dictionary of token usage
+        """
+        all_content = []
+        all_reasoning_content = []
+        streamed_content = []
+        tool_calls = []
+        token_usage = {"prompt": 0, "completion": 0}
+        
+        for response in responses:
+            logger.info(f"Processing response: {response}")
+            
+            content = response.get("content", "")
+            reasoning = response.get("reasoning_content", "")
+            
+            if response.get("choice_delta", {}).get("content"):
+                delta_content = response["choice_delta"]["content"]
+                if delta_content is not None:
+                    streamed_content.append(delta_content)
+            
+            if content:
+                all_content.append(content)
+            if reasoning:
+                all_reasoning_content.append(reasoning)
+            
+            tool_call = response.get("tool_call")
+            if tool_call and tool_call.get("name"):
+                tool_calls.append(tool_call)
+            
+            if response.get("usage"):
+                token_usage["prompt"] += response["usage"].get("prompt_tokens", 0)
+                token_usage["completion"] += response["usage"].get("completion_tokens", 0)
+                
+        combined_content = "".join(streamed_content) if streamed_content else ""
+        
+        return all_content, all_reasoning_content, combined_content, tool_calls, token_usage
+
+    def _check_semantic_match(self, all_content: List[str], all_reasoning_content: List[str], 
+                            combined_content: str, expected_match: str) -> bool:
+        """
+        Check if the semantic match exists in any content
+        
+        Args:
+            all_content: List of content strings
+            all_reasoning_content: List of reasoning content strings
+            combined_content: Combined streamed content string
+            expected_match: Expected semantic match string
+            
+        Returns:
+            Boolean indicating if match was found
+        """
+        if not expected_match:
+            return True
+            
+        all_text = []
+        all_text.extend(all_content)
+        all_text.extend(all_reasoning_content)
+        if combined_content:
+            all_text.append(combined_content)
+        
+        expected_match_lower = expected_match.lower()
+        
+        return any(expected_match_lower in text.lower() for text in all_text if text)
+
+    def analyze_responses(self, responses: List[Dict[str, Any]], test_case: Dict[str, Any]) -> Dict[str, Any]:
         """
         Analyze the responses from a benchmark run
         
@@ -20,90 +107,80 @@ class ResponseAnalyzer:
         Returns:
             Analysis results dictionary
         """
-        analysis = {
-            "tool_usage": "none",
-            "required_content": "none",
-            "semantic_match": "none",
-            "accuracy": 0.0,
-            "response_time": 0.0,
-            "token_usage": {"prompt": 0, "completion": 0},
-            "success": False,
-            "model": "unspecified"
-        }
+        logger.info(f"Starting analysis with test case: {test_case}")
+        
+        analysis = self.DEFAULT_ANALYSIS.copy()
         
         # Get expected tool usage and semantic match
         expected_output = test_case.get("expected_output", {})
-        expected_tool_usage = expected_output.get("contains_tool", False)
+        expected_tool = expected_output.get("contains_tool")
         expected_semantic_match = expected_output.get("semantic_match", "")
         
-        success_factors = []
-        total_factors = 0
-        semantic_match_success = False
-        tool_usage_success = False
+        logger.info(f"Expected semantic match: {expected_semantic_match}")
+        logger.info(f"Expected tool usage: {expected_tool}")
         
-        for response in responses:
-            # Get model name
-            if response.get("model"):
-                analysis["model"] = response["model"]
-            
-            # Check tool usage
-            has_tool_call = response.get("tool_call") is not None
-            if has_tool_call:
-                analysis["tool_usage"] = "yes"
-            elif not expected_tool_usage:
-                # If tool usage is not expected and not used, consider it correct
-                analysis["tool_usage"] = "yes"
-            
-            # Check if tool usage matches expectation
-            if "contains_tool" in expected_output:
-                tool_usage_success = expected_tool_usage == has_tool_call
-                if tool_usage_success:
-                    success_factors.append(1)
-                total_factors += 1
-            
-            # Check semantic match
-            if expected_semantic_match:
-                reasoning_content = response.get("reasoning_content", "")
-                content = response.get("content", "")
-                if (content and expected_semantic_match in content) or \
-                   (reasoning_content and expected_semantic_match in reasoning_content):
-                    analysis["semantic_match"] = "yes"
-                    semantic_match_success = True
-                    success_factors.append(1)
-                total_factors += 1
-            
-            # Accumulate token usage
-            if response.get("usage"):
-                analysis["token_usage"]["prompt"] += response["usage"].get("prompt_tokens", 0)
-                analysis["token_usage"]["completion"] += response["usage"].get("completion_tokens", 0)
+        # Process all responses first
+        all_content, all_reasoning_content, combined_content, tool_calls, token_usage = self._collect_response_data(responses)
+        
+        logger.info(f"Collected content: {all_content}")
+        logger.info(f"Collected reasoning content: {all_reasoning_content}")
+        logger.info(f"Combined streamed content: {combined_content}")
+        logger.info(f"Collected tool calls: {tool_calls}")
+        logger.info(f"Token usage: {token_usage}")
+        
+        # Initialize success tracking
+        success_count = 0
+        total_checks = 0
 
-        # Check if there are any evaluation requirements
-        has_tool_requirement = "contains_tool" in expected_output
-        has_semantic_requirement = bool(expected_semantic_match)
-        has_any_requirement = has_tool_requirement or has_semantic_requirement
+        # Check tool usage match
+        if expected_tool is not None:
+            total_checks += 1
+            tool_usage_success = False
+            
+            # Check all collected tool calls
+            for tool_call in tool_calls:
+                tool_name = tool_call.get("name", "")
+                if tool_name == expected_tool:
+                    tool_usage_success = True
+                    analysis["tool_usage"] = tool_name
+                    break
+            
+            logger.info(f"Tool usage check - Expected: {expected_tool}, Found: {analysis['tool_usage']}, Success: {tool_usage_success}")
+            
+            if tool_usage_success:
+                success_count += 1
+                logger.info("Tool usage check passed")
+            else:
+                logger.info("Tool usage check failed")
 
-        # Calculate accuracy and success status
-        if not has_any_requirement:
-            # If there are no evaluation requirements, add a default success factor
-            success_factors.append(1)
-            total_factors += 1
-        
-        # Calculate overall accuracy
-        if total_factors > 0:
-            analysis["accuracy"] = (sum(success_factors) / total_factors) * 100.0
-        
-        # Set success flag
-        # If there are no requirements, consider it successful
-        if not has_any_requirement:
-            analysis["success"] = True
+        # Check semantic match
+        if expected_semantic_match:
+            total_checks += 1
+            # Check for semantic match in any response
+            found_match = self._check_semantic_match(all_content, all_reasoning_content, combined_content, expected_semantic_match)
+            
+            logger.info(f"Semantic match check - Found: {found_match}")
+            if found_match:
+                analysis["semantic_match"] = "yes"
+                success_count += 1
+                logger.info("Semantic match check passed")
+            else:
+                logger.info("Semantic match check failed")
+
+        # Calculate accuracy
+        if total_checks > 0:
+            # If all checks passed, set accuracy to 100%, otherwise 0%
+            analysis["accuracy"] = 100.0 if success_count == total_checks else 0.0
+            logger.info(f"Accuracy calculation - Success count: {success_count}, Total checks: {total_checks}, Accuracy: {analysis['accuracy']}%")
+            
+            # Set success flag based on accuracy
+            analysis["success"] = success_count == total_checks
+            logger.info(f"Success status: {analysis['success']} (all checks must pass)")
         else:
-            # If semantic match is required, it must be satisfied
-            semantic_match_success = analysis["semantic_match"] == "yes" if has_semantic_requirement else True
-            
-            # If tool usage is required, it must match expectation
-            tool_usage_success = expected_tool_usage == has_tool_call if has_tool_requirement else True
-            
-            # Only consider successful if all required conditions are met
-            analysis["success"] = semantic_match_success and tool_usage_success
+            # If no checks were performed, consider it successful
+            analysis["accuracy"] = 100.0
+            analysis["success"] = True
+            logger.info("No checks performed, setting accuracy to 100%")
 
+        logger.info(f"Final analysis: {analysis}")
         return analysis

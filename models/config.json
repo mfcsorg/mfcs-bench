@@ -1,8 +1,12 @@
 {
     "qwen-plus-latest": {
-        "name": "QwenPlus",
+        "name": "Qwen-Plus",
         "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "description": "QwenPlus",
-        "api_key": ""
+        "api_key": "sk-xxxxx"
+    },
+    "ep-20250209175232-bh9dm": {
+        "name": "Doubao1.5-Pro",
+        "api_base": "https://ark.cn-beijing.volces.com/api/v3",
+        "api_key": "sk-xxxxx"
     }
 }

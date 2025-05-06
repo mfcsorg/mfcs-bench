@@ -1,0 +1,9 @@
+{
+    "input": {
+        "user": "what is the weather in hangzhou?"
+    },
+    "expected_output": {
+        "contains_tool": "get_weather"
+    },
+    "description": "weather tool usage"
+}

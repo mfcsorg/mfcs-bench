@@ -1,25 +1,65 @@
 """
 Core processor for benchmark results
 """
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Callable, TypedDict, Tuple
 import json
 import subprocess
 import os
 import time
-import select
 import logging
 from datetime import datetime
+from contextlib import contextmanager
+from time import perf_counter
+import sys
 
 logger = logging.getLogger(__name__)
 
+@contextmanager
+def log_execution_time(operation: str):
+    """Context manager to log execution time of operations"""
+    start_time = perf_counter()
+    try:
+        yield
+    finally:
+        execution_time = perf_counter() - start_time
+        logger.debug(f"{operation} completed in {execution_time:.2f} seconds")
+
+class TokenUsage(TypedDict):
+    prompt: int
+    completion: int
+
+class Analysis(TypedDict):
+    tool_usage: str
+    required_content: str
+    semantic_match: str
+    accuracy: float
+    response_time: float
+    token_usage: TokenUsage
+    success: bool
+    model: str
+
 class BenchmarkProcessor:
     """Processes benchmark results and handles test execution"""
+
+    DEFAULT_ANALYSIS: Analysis = {
+        "tool_usage": "none",
+        "required_content": "none",
+        "semantic_match": "none",
+        "accuracy": 0.0,
+        "response_time": 0.0,
+        "token_usage": {"prompt": 0, "completion": 0},
+        "success": False,
+        "model": "unspecified"
+    }
+
+    STREAM_CHECK_DELAY: float = 0.1
+    PROCESS_POLL_DELAY: float = 0.1
 
     def __init__(self):
         """Initialize the processor"""
         pass
 
-    def process_app(self, command: List[str], app_config: Dict, app_name: str) -> Dict[str, Any]:
+    def process_app(self, command: List[str], app_config: Dict[str, Any], app_name: str) -> Dict[str, Any]:
         """
         Process a single application test
         
@@ -33,27 +73,41 @@ class BenchmarkProcessor:
         """
         try:
             start_time = time.time()
+            # Use stream setting from config
+            is_stream = app_config.get("stream", False)
+
+            
+                
+            # Handle different command types
+            if command[0] == 'python':
+                # Get virtual environment path
+                venv_path = os.environ.get('VIRTUAL_ENV')
+                if venv_path:
+                    # Add venv Scripts/bin directory to PATH
+                    if sys.platform == 'win32':
+                        scripts_dir = 'Scripts'
+                        python_name = 'python.exe'
+                    else:
+                        scripts_dir = 'bin'
+                        python_name = 'python'
+                    
+                    scripts_path = os.path.join(venv_path, scripts_dir)
+                    # Use Python from venv directly
+                    python_executable = os.path.join(scripts_path, python_name)
+                    if not os.path.exists(python_executable):
+                        logger.error(f"Python executable not found in virtual environment: {python_executable}")
+                        raise FileNotFoundError(f"Python executable not found: {python_executable}")
+                    command[0] = python_executable
+            
             process = subprocess.Popen(
                 command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True,
+                encoding='utf-8',
+                errors='replace',
                 bufsize=1,
                 universal_newlines=True
             )
-
-            # Determine if streaming is needed
-            is_stream = app_config.get("stream", None)
-            
-            if is_stream is None:
-                try:
-                    time.sleep(0.1)
-                    if process.stdout and select.select([process.stdout], [], [], 0.0)[0]:
-                        is_stream = True
-                    else:
-                        is_stream = False
-                except Exception:
-                    is_stream = False
             
             if is_stream:
                 stdout, stderr, responses = self._handle_stream_output(process)
@@ -114,63 +168,96 @@ class BenchmarkProcessor:
                 "responses": []
             }
 
-    def _handle_stream_output(self, process: subprocess.Popen) -> tuple[str, str, List[Dict]]:
-        """Handle streaming output from a process"""
-        stdout_data = []
-        stderr_data = []
-        responses = []
+    def _handle_stream_output(self, process: subprocess.Popen) -> Tuple[str, str, List[Dict[str, Any]]]:
+        """
+        Handle streaming output from a process
         
-        # Set non-blocking mode
-        for pipe in [process.stdout, process.stderr]:
-            if pipe:
-                os.set_blocking(pipe.fileno(), False)
+        Args:
+            process: Subprocess to handle output from
+            
+        Returns:
+            Tuple containing stdout, stderr and parsed responses
+        """
+        stdout_data: List[str] = []
+        stderr_data: List[str] = []
+        responses: List[Dict[str, Any]] = []
+        
+        # Set timeout for stream reading (in seconds)
+        timeout = 30
+        start_time = time.time()
         
         while True:
+            # Check for timeout
+            if time.time() - start_time > timeout:
+                logger.warning(f"Stream reading timed out after {timeout} seconds")
+                process.terminate()
+                break
+                
+            # Check if process has finished
             if process.poll() is not None:
+                # Read any remaining output
+                remaining_out, remaining_err = process.communicate()
+                if remaining_out:
+                    stdout_data.append(remaining_out)
+                    for line in remaining_out.splitlines():
+                        try:
+                            if line.strip():
+                                response = json.loads(line.strip())
+                                responses.append(response)
+                        except json.JSONDecodeError:
+                            continue
+                if remaining_err:
+                    stderr_data.append(remaining_err)
                 break
 
-            if process.stdout:
-                while True:
+            # Read from stdout without blocking
+            try:
+                line = process.stdout.readline()
+                if line:
+                    stdout_data.append(line)
                     try:
-                        line = process.stdout.readline()
-                        if not line:
-                            break
-                        stdout_data.append(line)
-                        try:
+                        if line.strip():
                             response = json.loads(line.strip())
                             responses.append(response)
-                        except json.JSONDecodeError:
-                            pass
-                    except (IOError, BlockingIOError):
-                        break
+                    except json.JSONDecodeError:
+                        continue
+                else:
+                    # No more output
+                    break
+            except Exception as e:
+                logger.error(f"Error reading stream: {e}")
+                break
 
-            if process.stderr:
-                while True:
-                    try:
-                        line = process.stderr.readline()
-                        if not line:
-                            break
-                        stderr_data.append(line)
-                    except (IOError, BlockingIOError):
-                        break
+            # Read from stderr without blocking
+            try:
+                err_line = process.stderr.readline()
+                if err_line:
+                    stderr_data.append(err_line)
+            except Exception:
+                pass
 
-            time.sleep(0.1)
-
-        # Read any remaining output
-        if process.stdout:
-            remaining_stdout = process.stdout.read()
-            if remaining_stdout:
-                stdout_data.append(remaining_stdout)
-        if process.stderr:
-            remaining_stderr = process.stderr.read()
-            if remaining_stderr:
-                stderr_data.append(remaining_stderr)
+        # Ensure process is terminated
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
 
         return ''.join(stdout_data), ''.join(stderr_data), responses
 
-    def _parse_responses(self, stdout: str) -> List[Dict]:
-        """Parse responses from stdout"""
-        responses = []
+    def _parse_responses(self, stdout: str) -> List[Dict[str, Any]]:
+        """
+        Parse responses from stdout
+        
+        Args:
+            stdout: Standard output string to parse
+            
+        Returns:
+            List of parsed response dictionaries
+        """
+        responses: List[Dict[str, Any]] = []
         try:
             if stdout.strip():
                 response = json.loads(stdout.strip())
@@ -185,9 +272,18 @@ class BenchmarkProcessor:
                     continue
         return responses
 
-    def _load_test_case(self, app_config: Dict) -> Dict:
-        """Load test case from file"""
-        test_case = {}
+    def _load_test_case(self, app_config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Load test case from file
+        
+        Args:
+            app_config: Application configuration dictionary
+            
+        Returns:
+            Test case dictionary
+        """
+        logger.debug("Starting test case loading")
+        test_case: Dict[str, Any] = {}
         try:
             test_case_path = next(
                 (arg.split('=')[1] for arg in app_config["args"] if arg.startswith("--test_case_name=")),
@@ -195,91 +291,169 @@ class BenchmarkProcessor:
             )
             if test_case_path:
                 test_case_full_path = os.path.join("test_cases", test_case_path)
+                logger.debug(f"Loading test case from: {test_case_full_path}")
                 with open(test_case_full_path, 'r', encoding='utf-8') as f:
                     test_case = json.load(f)
-        except Exception:
-            pass
+                logger.debug("Test case loaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to load test case: {e}", exc_info=True)
         return test_case
 
-    def _analyze_responses(self, responses: List[Dict], test_case: Dict) -> Dict[str, Any]:
-        """Analyze responses"""
-        analysis = {
-            "tool_usage": "none",
-            "required_content": False,
-            "semantic_match": "no",
-            "accuracy": 0.0,
-            "response_time": 0.0,
-            "token_usage": {"prompt": 0, "completion": 0},
-            "success": False,
-            "model": "unspecified"
-        }
+    def _analyze_responses(self, responses: List[Dict[str, Any]], test_case: Dict[str, Any]) -> Analysis:
+        """
+        Analyze responses
         
-        for response in responses:
-            # Get model name
-            if response.get("model"):
-                analysis["model"] = response["model"]
+        Args:
+            responses: List of response dictionaries
+            test_case: Test case dictionary
             
-            # Check tool usage
-            if response.get("tool_call"):
-                tool_name = response["tool_call"].get("name", "")
-                analysis["tool_usage"] = tool_name
-                if "expected_tool" in test_case and tool_name == test_case["expected_tool"]:
-                    analysis["accuracy"] = 100.0
-                    analysis["success"] = True
+        Returns:
+            Analysis results
+        """
+        logger.debug("Starting response analysis")
+        analysis = self.DEFAULT_ANALYSIS.copy()
+        
+        # 确保test_case和responses不为None
+        if test_case is None:
+            test_case = {}
+        if responses is None:
+            responses = []
             
-            # Check semantic match
-            if "semantic_match" in test_case.get("expected_output", {}):
-                expected_match = test_case["expected_output"]["semantic_match"]
-                content = response.get("content", "")
-                reasoning_content = response.get("reasoning_content", "")
+        expected_output = test_case.get("expected_output", {})
+        has_tool_check = "contains_tool" in expected_output
+        expected_tool = expected_output.get("contains_tool") if has_tool_check else None
+        
+        logger.debug(f"Expected tool check: {has_tool_check}, Expected tool: {expected_tool}")
+        
+        actual_tool_used = "none"
+        is_stream = False
+        token_usage = {"prompt": 0, "completion": 0}
+        final_usage = None
+        combined_content = []
+
+        for idx, response in enumerate(responses):
+            if not isinstance(response, dict):
+                logger.warning(f"Skipping invalid response at index {idx}: {response}")
+                continue
                 
-                # Check both content and reasoning_content for semantic match
-                if (content and expected_match in content) or \
-                   (reasoning_content and expected_match in reasoning_content):
-                    analysis["semantic_match"] = "yes"
+            logger.debug(f"Processing response {idx + 1}/{len(responses)}")
             
-            # Accumulate token usage
-            if response.get("usage"):
-                analysis["token_usage"]["prompt"] += response["usage"].get("prompt_tokens", 0)
-                analysis["token_usage"]["completion"] += response["usage"].get("completion_tokens", 0)
+            # 安全地获取model
+            model = response.get("model")
+            if model:
+                analysis["model"] = model
+                logger.debug(f"Model identified: {model}")
+            
+            # 安全地获取tool_call
+            tool_call = response.get("tool_call")
+            if isinstance(tool_call, dict):
+                tool_name = tool_call.get("name", "")
+                if tool_name:
+                    actual_tool_used = tool_name
+                    logger.debug(f"Tool usage identified: {tool_name}")
+            
+            # 安全地获取各种内容
+            content = response.get("content", "")
+            reasoning_content = response.get("reasoning_content", "")
+            choice_delta = response.get("choice_delta")
+            delta_content = choice_delta.get("content") if isinstance(choice_delta, dict) else None
+            
+            if content:
+                combined_content.append(str(content))
+            if reasoning_content:
+                combined_content.append(str(reasoning_content))
+            if delta_content:
+                combined_content.append(str(delta_content))
+            
+            # 检测是否为流式响应
+            if choice_delta is not None:
+                is_stream = True
+            
+            # 安全地处理token使用量
+            usage = response.get("usage")
+            if isinstance(usage, dict):
+                current_usage = usage
+                final_usage = current_usage
+                if is_stream:
+                    token_usage["prompt"] += current_usage.get("prompt_tokens", 0)
+                    token_usage["completion"] += current_usage.get("completion_tokens", 0)
 
-        return analysis 
-
-    def get_summary_stats(self, results: List[Dict]) -> Dict[str, Any]:
-        """
-        Get summary statistics from results
+        # 设置最终的token使用量
+        if is_stream:
+            analysis["token_usage"] = token_usage.copy()
+        elif isinstance(final_usage, dict):
+            analysis["token_usage"]["prompt"] = final_usage.get("prompt_tokens", 0)
+            analysis["token_usage"]["completion"] = final_usage.get("completion_tokens", 0)
         
-        Args:
-            results: List of test results
-            
-        Returns:
-            Dictionary containing summary statistics
-        """
-        return {
-            "total_apps": len(results),
-            "successful_apps": sum(1 for r in results if r["success"]),
-            "failed_apps": sum(1 for r in results if not r["success"]),
-            "total_execution_time": sum(r["execution_time"] for r in results),
-            "average_accuracy": sum(r["analysis"].get("accuracy", 0.0) for r in results) / max(len(results), 1),
-            "tool_usage_rate": sum(1 for r in results if r["analysis"].get("tool_usage", "none") != "none") / max(len(results), 1) * 100,
-            "semantic_match_rate": sum(1 for r in results if r["analysis"].get("semantic_match", "no") == "yes") / max(len(results), 1) * 100
-        }
+        logger.debug(f"Final token usage: {analysis['token_usage']}")
 
-    def get_test_case_info(self, result: Dict) -> Dict[str, Any]:
-        """
-        Get formatted test case information
-        
-        Args:
-            result: Test result dictionary
+        # 检查semantic match
+        if "semantic_match" in expected_output:
+            expected_match = str(expected_output.get("semantic_match", ""))
+            all_content = "".join(combined_content)
+            logger.debug(f"Combined content for matching: {all_content}")
+            logger.debug(f"Expected match: {expected_match}")
             
-        Returns:
-            Dictionary containing formatted test case information
-        """
-        test_case = result.get("test_case", {})
-        return {
-            "name": result["analysis"].get("test_case", "unknown"),
-            "description": test_case.get("description", ""),
-            "input": test_case.get("input", {}),
-            "expected_output": test_case.get("expected_output", {}),
-            "actual_output": result.get("stdout", "")
-        } 
+            if expected_match and expected_match in all_content:
+                analysis["semantic_match"] = "yes"
+                logger.debug("Semantic match found")
+            else:
+                analysis["semantic_match"] = "no"
+                logger.debug("Semantic match not found")
+
+        # Set tool usage status
+        if has_tool_check:
+            if actual_tool_used == "none":
+                analysis["tool_usage"] = "no"
+            elif actual_tool_used == expected_tool:
+                analysis["tool_usage"] = actual_tool_used
+            else:
+                analysis["tool_usage"] = "no"
+        else:
+            analysis["tool_usage"] = "none"
+            
+        logger.debug(f"Final tool usage status: {analysis['tool_usage']}")
+
+        # Calculate accuracy
+        metrics_to_compare = 0
+        successful_metrics = 0
+        
+        if has_tool_check:
+            metrics_to_compare += 1
+            if analysis["tool_usage"] != "no":
+                successful_metrics += 1
+                logger.debug("Tool usage check passed")
+            else:
+                logger.debug("Tool usage check failed")
+            
+        if "semantic_match" in expected_output:
+            expected_match = str(expected_output.get("semantic_match", ""))
+            if expected_match != "none":
+                metrics_to_compare += 1
+                if analysis["semantic_match"] == "yes":
+                    successful_metrics += 1
+                    logger.debug("Semantic match check passed")
+                else:
+                    logger.debug("Semantic match check failed")
+
+        if metrics_to_compare > 0:
+            analysis["accuracy"] = (successful_metrics / metrics_to_compare) * 100.0
+        else:
+            analysis["accuracy"] = 100.0
+            
+        analysis["success"] = analysis["accuracy"] == 100.0
+        
+        logger.info(
+            "Response analysis completed",
+            extra={
+                "accuracy": analysis["accuracy"],
+                "success": analysis["success"],
+                "metrics_compared": metrics_to_compare,
+                "successful_metrics": successful_metrics,
+                "tool_usage": analysis["tool_usage"],
+                "semantic_match": analysis["semantic_match"],
+                "token_usage": analysis["token_usage"]
+            }
+        )
+        
+        return analysis

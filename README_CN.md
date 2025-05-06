@@ -33,6 +33,7 @@ pip install -e .
 3. 运行基准测试：
 
 ```bash
+pip install -r apps/mfcs-python/requirements.txt
 python run_benchmark.py
 ```
 
