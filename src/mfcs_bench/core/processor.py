@@ -1,13 +1,12 @@
 """
 Core processor for benchmark results
 """
-from typing import Dict, List, Any, Optional, Callable, TypedDict, Tuple
+from typing import Dict, List, Any, TypedDict, Tuple
 import json
 import subprocess
 import os
 import time
 import logging
-from datetime import datetime
 from contextlib import contextmanager
 from time import perf_counter
 import sys
@@ -313,7 +312,7 @@ class BenchmarkProcessor:
         logger.debug("Starting response analysis")
         analysis = self.DEFAULT_ANALYSIS.copy()
         
-        # 确保test_case和responses不为None
+        # Ensure test_case and responses are not None
         if test_case is None:
             test_case = {}
         if responses is None:
@@ -338,13 +337,13 @@ class BenchmarkProcessor:
                 
             logger.debug(f"Processing response {idx + 1}/{len(responses)}")
             
-            # 安全地获取model
+            # Safely get model
             model = response.get("model")
             if model:
                 analysis["model"] = model
                 logger.debug(f"Model identified: {model}")
             
-            # 安全地获取tool_call
+            # Safely get tool_call
             tool_call = response.get("tool_call")
             if isinstance(tool_call, dict):
                 tool_name = tool_call.get("name", "")
@@ -352,7 +351,7 @@ class BenchmarkProcessor:
                     actual_tool_used = tool_name
                     logger.debug(f"Tool usage identified: {tool_name}")
             
-            # 安全地获取各种内容
+            # Safely get various content
             content = response.get("content", "")
             reasoning_content = response.get("reasoning_content", "")
             choice_delta = response.get("choice_delta")
@@ -365,11 +364,11 @@ class BenchmarkProcessor:
             if delta_content:
                 combined_content.append(str(delta_content))
             
-            # 检测是否为流式响应
+            # Detect if it is a streaming response
             if choice_delta is not None:
                 is_stream = True
             
-            # 安全地处理token使用量
+            # Safely handle token usage
             usage = response.get("usage")
             if isinstance(usage, dict):
                 current_usage = usage
@@ -378,7 +377,7 @@ class BenchmarkProcessor:
                     token_usage["prompt"] += current_usage.get("prompt_tokens", 0)
                     token_usage["completion"] += current_usage.get("completion_tokens", 0)
 
-        # 设置最终的token使用量
+        # Set final token usage
         if is_stream:
             analysis["token_usage"] = token_usage.copy()
         elif isinstance(final_usage, dict):
@@ -387,7 +386,7 @@ class BenchmarkProcessor:
         
         logger.debug(f"Final token usage: {analysis['token_usage']}")
 
-        # 检查semantic match
+        # Check semantic match
         if "semantic_match" in expected_output:
             expected_match = str(expected_output.get("semantic_match", ""))
             all_content = "".join(combined_content)

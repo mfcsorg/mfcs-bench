@@ -58,7 +58,7 @@ class BenchmarkRunner:
         results = {}
         for app_name, app_config in self.config.items():
             results[app_name] = {}
-            # 1. 加载所有模型
+            # 1. Load all models
             model_cfg_path = None
             for arg in app_config["args"]:
                 if arg.startswith("--model=") or arg.startswith("--models="):
@@ -68,7 +68,7 @@ class BenchmarkRunner:
                 continue
             with open(model_cfg_path, 'r', encoding='utf-8') as f:
                 models = json.load(f)
-            # 2. 加载所有test_case
+            # 2. Load all test cases
             test_cases_dir = None
             for arg in app_config["args"]:
                 if arg.startswith("--test_cases="):
@@ -77,26 +77,26 @@ class BenchmarkRunner:
                 logger.error(f"No test_cases dir found for app {app_name}")
                 continue
             test_case_files = [f for f in os.listdir(test_cases_dir) if f.endswith('.json')]
-            # 3. 遍历模型和用例
+            # 3. Iterate over models and test cases
             for model_name in models.keys():
                 results[app_name][model_name] = {}
                 for test_case_file in test_case_files:
-                    # 动态组装命令
+                    # Dynamically assemble command
                     command = [app_config["command"]] + [a for a in app_config["args"]]
-                    # 添加模型名参数
+                    # Add model name parameter
                     if any(a.startswith("--model=") for a in command):
                         command.append(f"--model_name={model_name}")
                     elif any(a.startswith("--models=") for a in command):
                         command.append(f"--model_name={model_name}")
-                    # 添加用例名参数
+                    # Add test case name parameter
                     command.append(f"--test_case_name={test_case_file}")
-                    # 构造新的 app_config，包含 test_case_name 参数
+                    # Construct new app_config including test_case_name parameter
                     app_config_with_case = dict(app_config)
                     app_config_with_case["args"] = list(app_config["args"]) + [f"--test_case_name={test_case_file}"]
                     logger.info(f"Running: {app_name} | {model_name} | {test_case_file}")
                     processor = BenchmarkProcessor()
                     result = processor.process_app(command, app_config_with_case, app_name)
-                    # 记录模型名和用例名
+                    # Record model name and test case name
                     result["model_name"] = model_name
                     result["test_case_file"] = test_case_file
                     results[app_name][model_name][test_case_file] = result
