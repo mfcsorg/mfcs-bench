@@ -11,13 +11,13 @@ from mfcs.function_prompt import FunctionPromptGenerator
 
 def load_config(config_path: str) -> Dict[str, Any]:
     """Load configuration from JSON file"""
-    with open(config_path, 'r') as f:
+    with open(config_path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
 def load_test_case(test_cases_dir: str, test_case_name: str) -> Dict[str, Any]:
     """Load test case from JSON file"""
     test_case_path = os.path.join(test_cases_dir, test_case_name)
-    with open(test_case_path, 'r') as f:
+    with open(test_case_path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
 async def stream_llm_response(client: AsyncOpenAI, 
@@ -69,16 +69,16 @@ async def stream_llm_response(client: AsyncOpenAI,
                 response["tool_call"] = {
                     "instructions": call_info.instructions,
                     "name": call_info.name,
-                    "id": call_info.id,
-                    "args": call_info.args
+                    "call_id": call_info.call_id,
+                    "arguments": call_info.arguments
                 }
             
             if call_info and isinstance(call_info, MemoryCall):
                 response["memory_call"] = {
                     "instructions": call_info.instructions,
                     "name": call_info.name,
-                    "id": call_info.id,
-                    "args": call_info.args
+                    "memory_id": call_info.memory_id,
+                    "arguments": call_info.arguments
                 }
             
             if usage:
@@ -109,9 +109,19 @@ async def main():
         sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf-8', buffering=1)
 
     # Load configurations
-    model_config = load_config(args.model).get(args.model_name)
+    model_config_all = load_config(args.model)
+    model_config = model_config_all.get(args.model_name)
+    if model_config is None:
+        print(f"[Error] Model name '{args.model_name}' not found in {args.model}.", file=sys.stderr)
+        sys.exit(1)
     tools_config = load_config(args.tools)
+    if not tools_config:
+        print(f"[Error] Tools config is empty or not found in {args.tools}.", file=sys.stderr)
+        sys.exit(1)
     test_case = load_test_case(args.test_cases, args.test_case_name)
+    if not test_case:
+        print(f"[Error] Test case '{args.test_case_name}' not found in {args.test_cases}.", file=sys.stderr)
+        sys.exit(1)
 
     # Initialize OpenAI client
     client = AsyncOpenAI(
