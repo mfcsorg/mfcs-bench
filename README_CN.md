@@ -19,6 +19,9 @@
 ## 📦 安装与依赖
 
 ```bash
+git clone https://github.com/mfcsorg/mfcs-bench.git
+cd mfcs-bench
+pip install -e .
 pip install -r requirements.txt
 # Python 示例：
 pip install -r apps/mfcs-python/requirements.txt

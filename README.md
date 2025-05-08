@@ -19,7 +19,7 @@
 ## 📦 Installation & Requirements
 
 ```bash
-git clone https://github.com/your-org/mfcs-bench.git
+git clone https://github.com/mfcsorg/mfcs-bench.git
 cd mfcs-bench
 pip install -e .
 pip install -r requirements.txt
