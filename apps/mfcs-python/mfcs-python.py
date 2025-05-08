@@ -22,7 +22,6 @@ def load_test_case(test_cases_dir: str, test_case_name: str) -> Dict[str, Any]:
 
 async def stream_llm_response(client: AsyncOpenAI, 
                             model: str,
-                            model_config: Dict[str, Any],
                             messages: list,
                             test_case: str,
                             tools: list = None) -> AsyncGenerator[Dict[str, Any], None]:
@@ -50,7 +49,7 @@ async def stream_llm_response(client: AsyncOpenAI,
         async for delta, call_info, reasoning_content, usage in parser.parse_stream_output(stream):
             # Initialize response structure
             response = {
-                "model": model_config.get("name"),
+                "model": model,
                 "test_case": test_case,
                 "reasoning_content": reasoning_content,
                 "choice_delta": None,
@@ -142,7 +141,6 @@ async def main():
     async for response in stream_llm_response(
         client=client,
         model=args.model_name,
-        model_config=model_config,
         messages=messages,
         test_case=args.test_case_name,
         tools=tools

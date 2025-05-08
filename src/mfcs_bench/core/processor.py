@@ -10,6 +10,8 @@ import logging
 from contextlib import contextmanager
 from time import perf_counter
 import sys
+import asyncio
+import aiofiles
 
 logger = logging.getLogger(__name__)
 
@@ -58,102 +60,129 @@ class BenchmarkProcessor:
         """Initialize the processor"""
         pass
 
-    def process_app(self, command: List[str], app_config: Dict[str, Any], app_name: str) -> Dict[str, Any]:
+    async def async_process_app(self, command: List[str], app_config: Dict[str, Any], app_name: str, timeout: int = 60) -> Dict[str, Any]:
         """
-        Process a single application test
-        
+        Asynchronously process a single application test, supporting timeout and both streaming/non-streaming modes.
         Args:
             command: Command to execute
             app_config: Application configuration
             app_name: Name of the application
-            
+            timeout: Timeout in seconds
         Returns:
             Dictionary containing test results
         """
+        start_time = time.time()
+        is_stream = app_config.get("stream", False)
         try:
-            start_time = time.time()
-            # Use stream setting from config
-            is_stream = app_config.get("stream", False)
-
-            
-                
-            # Handle different command types
+            # Handle virtual environment (same as sync version)
             if command[0] == 'python':
-                # Get virtual environment path
                 venv_path = os.environ.get('VIRTUAL_ENV')
                 if venv_path:
-                    # Add venv Scripts/bin directory to PATH
                     if sys.platform == 'win32':
                         scripts_dir = 'Scripts'
                         python_name = 'python.exe'
                     else:
                         scripts_dir = 'bin'
                         python_name = 'python'
-                    
                     scripts_path = os.path.join(venv_path, scripts_dir)
-                    # Use Python from venv directly
                     python_executable = os.path.join(scripts_path, python_name)
                     if not os.path.exists(python_executable):
                         logger.error(f"Python executable not found in virtual environment: {python_executable}")
                         raise FileNotFoundError(f"Python executable not found: {python_executable}")
                     command[0] = python_executable
-            
-            process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                encoding='utf-8',
-                errors='replace',
-                bufsize=1,
-                universal_newlines=True
+
+            # Start async subprocess
+            proc = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
-            
+
             if is_stream:
-                stdout, stderr, responses = self._handle_stream_output(process)
+                # Streaming output
+                stdout_data = []
+                stderr_data = []
+                responses = []
+                try:
+                    async def read_stream():
+                        while True:
+                            line = await proc.stdout.readline()
+                            if not line:
+                                break
+                            line_str = line.decode('utf-8', errors='replace')
+                            stdout_data.append(line_str)
+                            try:
+                                if line_str.strip():
+                                    response = json.loads(line_str.strip())
+                                    responses.append(response)
+                            except json.JSONDecodeError:
+                                continue
+                    await asyncio.wait_for(read_stream(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    logger.warning(f"Async stream reading timed out after {timeout} seconds")
+                    proc.kill()
+                    await proc.wait()
+                # Read remaining stderr
+                try:
+                    while True:
+                        err_line = await proc.stderr.readline()
+                        if not err_line:
+                            break
+                        stderr_data.append(err_line.decode('utf-8', errors='replace'))
+                except Exception:
+                    pass
+                stdout = ''.join(stdout_data)
+                stderr = ''.join(stderr_data)
             else:
-                stdout, stderr = process.communicate()
+                # Non-streaming output
+                try:
+                    outs, errs = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    await proc.wait()
+                    outs, errs = b'', b''
+                    logger.error("Async subprocess timed out and was killed.")
+                stdout = outs.decode('utf-8', errors='replace') if outs else ''
+                stderr = errs.decode('utf-8', errors='replace') if errs else ''
+
+            # Parse responses
+            if is_stream:
+                # responses are already parsed in streaming
+                pass
+            else:
                 responses = self._parse_responses(stdout)
-            
+
             end_time = time.time()
-            
-            # Load test case
-            test_case = self._load_test_case(app_config)
-            
-            # Analyze responses
+            # Use async version to load test_case
+            test_case = await self._load_test_case(app_config)
             analysis = self._analyze_responses(responses, test_case)
-            
             result = {
                 "app_name": app_name,
                 "success": analysis["success"],
                 "stdout": stdout,
                 "stderr": stderr,
                 "execution_time": end_time - start_time,
-                "return_code": process.returncode,
+                "return_code": proc.returncode if proc.returncode is not None else -1,
                 "is_stream": is_stream,
                 "analysis": analysis,
                 "test_case": test_case,
                 "responses": responses
             }
-
-            # Add helper methods as properties
             result["get_model_name"] = lambda: analysis.get("model", test_case.get("model", "unspecified"))
             result["get_accuracy"] = lambda: analysis.get("accuracy", 0.0)
             result["get_tool_usage"] = lambda: analysis.get("tool_usage", "none")
             result["get_semantic_match"] = lambda: analysis.get("semantic_match", "no")
             result["get_token_usage"] = lambda: analysis.get("token_usage", {"prompt": 0, "completion": 0})
-            
             return result
-            
         except Exception as e:
-            logger.error(f"Failed to process application: {e}")
-            test_case = self._load_test_case(app_config)
-            
+            logger.error(f"Failed to async process application: {e}")
+            test_case = {}
             return {
                 "app_name": app_name,
                 "success": False,
                 "error": str(e),
                 "execution_time": time.time() - start_time,
-                "is_stream": False,
+                "is_stream": is_stream,
                 "analysis": {
                     "tool_usage": "none",
                     "required_content": False,
@@ -161,7 +190,7 @@ class BenchmarkProcessor:
                     "accuracy": 0.0,
                     "response_time": 0.0,
                     "token_usage": {"prompt": 0, "completion": 0},
-                    "model": test_case.get("model", "unspecified")
+                    "model": "unspecified"
                 },
                 "test_case": test_case,
                 "responses": []
@@ -271,13 +300,11 @@ class BenchmarkProcessor:
                     continue
         return responses
 
-    def _load_test_case(self, app_config: Dict[str, Any]) -> Dict[str, Any]:
+    async def _load_test_case(self, app_config: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Load test case from file
-        
+        Asynchronously load test case from file
         Args:
             app_config: Application configuration dictionary
-            
         Returns:
             Test case dictionary
         """
@@ -291,8 +318,9 @@ class BenchmarkProcessor:
             if test_case_path:
                 test_case_full_path = os.path.join("test_cases", test_case_path)
                 logger.debug(f"Loading test case from: {test_case_full_path}")
-                with open(test_case_full_path, 'r', encoding='utf-8') as f:
-                    test_case = json.load(f)
+                async with aiofiles.open(test_case_full_path, 'r', encoding='utf-8') as f:
+                    content = await f.read()
+                    test_case = json.loads(content)
                 logger.debug("Test case loaded successfully")
         except Exception as e:
             logger.error(f"Failed to load test case: {e}", exc_info=True)
