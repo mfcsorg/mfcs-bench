@@ -13,6 +13,10 @@
 - 🔄 **Streaming Support**: Real-time response analysis with streaming output
 - 📈 **Detailed Reports**: Both summary and detailed markdown reports with test analytics
 - 🔁 **Automated Pipeline**: Fully automated benchmark workflow
+- ⚡ **Async & Concurrent Evaluation**: Asynchronous, concurrent evaluation of all models and test cases for high efficiency
+- 📝 **Async Report Generation**: Benchmark reports are generated asynchronously for better performance
+- 📥 **Async Config & Test Case Loading**: Configuration and test cases are loaded with async IO for smoother operation
+- 📚 **Custom Embedding Model Support**: Supports custom embedding models for semantic evaluation and similarity threshold configuration
 
 ---
 
@@ -180,6 +184,19 @@ MIT License
 python run_benchmark.py
 ```
 
+**Supported Key Arguments:**
+
+- `--config`: Path to configuration file (default: `apps/config.json`)
+- `--reports-dir`: Directory to store reports (default: `reports`)
+- `--embedding-model`: Embedding model name or path (optional, default is built-in)
+- `--embedding-threshold`: Embedding similarity threshold (optional, default: 0.45)
+- `--verbose` or `-v`: Enable verbose logging
+
+**Example:**
+```bash
+python run_benchmark.py --config=apps/config.json --reports-dir=reports --embedding-model=paraphrase-multilingual-MiniLM-L12-v2 --embedding-threshold=0.45 -v
+```
+
 ### Python Example
 ```bash
 python apps/mfcs-python/mfcs-python.py --model=models/config.json --model_name=<model_id> --tools=tools/config.json --test_cases=test_cases --test_case_name=<case.json>
@@ -201,3 +218,9 @@ Arguments:
 - Reports include: model, test case, accuracy, response time, tool usage, etc.
 - Only one report file is generated: `report_YYYYMMDD_HHMMSS.md` (includes both summary and details)
 - Markdown reports saved in `reports/` with timestamp
+
+---
+
+## 📝 Changelog
+
+- **2024-06**: Add async concurrent evaluation, async report generation, async config/test case loading, improved streaming output analysis, and embedding model support for semantic evaluation.

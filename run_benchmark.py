@@ -9,6 +9,7 @@ import logging
 from datetime import datetime
 import asyncio
 import aiofiles
+from sentence_transformers import SentenceTransformer
 
 from mfcs_bench.core.processor import BenchmarkProcessor
 
@@ -30,16 +31,27 @@ logger = logging.getLogger(__name__)
 class BenchmarkRunner:
     """Main benchmark runner class"""
     
-    def __init__(self, config_path="apps/config.json", reports_dir="reports"):
+    def __init__(self, config_path="apps/config.json", reports_dir="reports", embedding_model_name_or_path=None, embedding_threshold=None):
         """
         Initialize the benchmark runner
         
         Args:
             config_path: Path to configuration file
             reports_dir: Directory to store reports
+            embedding_model_name_or_path: Embedding model name or path
+            embedding_threshold: Embedding similarity threshold
         """
         self.config_path = config_path
         self.reports_dir = reports_dir
+        self.embedding_model_name_or_path = embedding_model_name_or_path
+        self.embedding_threshold = embedding_threshold
+        # 只加载一次 embedding_model
+        model_name = (
+            embedding_model_name_or_path or
+            os.environ.get('EMBEDDING_MODEL_NAME_OR_PATH') or
+            BenchmarkProcessor.DEFAULT_EMBEDDING_MODEL
+        )
+        self.embedding_model = SentenceTransformer(model_name)
         self.load_config()
         
         # Ensure reports directory exists
@@ -130,7 +142,7 @@ class BenchmarkRunner:
                     app_config_with_case = dict(app_config)
                     app_config_with_case["args"] = list(app_config["args"]) + [f"--test_case_name={test_case_file}"]
                     logger.info(f"Running: {app_name} | {model_name} | {test_case_file}")
-                    processor = BenchmarkProcessor()
+                    processor = BenchmarkProcessor(embedding_model=self.embedding_model, embedding_threshold=self.embedding_threshold)
                     coro = processor.async_process_app(command, app_config_with_case, app_name)
                     task = asyncio.create_task(coro)
                     tasks.append(task)
@@ -228,25 +240,38 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="MFCS Benchmark Runner - Test and evaluate MFCS implementations"
     )
-    
+
     parser.add_argument(
         "--config",
         default="apps/config.json",
         help="Path to configuration file (default: apps/config.json)"
     )
-    
+
     parser.add_argument(
         "--reports-dir",
         default="reports",
         help="Directory to store reports (default: reports)"
     )
-    
+
     parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="Enable verbose logging"
     )
-    
+
+    parser.add_argument(
+        "--embedding-model",
+        default=None,
+        help="Embedding model name or path (default: None, will use environment variable or default in processor)"
+    )
+
+    parser.add_argument(
+        "--embedding-threshold",
+        type=float,
+        default=0.45,
+        help="Embedding similarity threshold (default: None, will use environment variable or default in processor)"
+    )
+
     return parser.parse_args()
 
 def main() -> int:
@@ -259,7 +284,9 @@ def main() -> int:
     try:
         runner = BenchmarkRunner(
             config_path=args.config,
-            reports_dir=args.reports_dir
+            reports_dir=args.reports_dir,
+            embedding_model_name_or_path=args.embedding_model,
+            embedding_threshold=args.embedding_threshold
         )
         asyncio.run(runner.async_run_benchmark())
         return 0

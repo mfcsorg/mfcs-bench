@@ -12,6 +12,7 @@ from time import perf_counter
 import sys
 import asyncio
 import aiofiles
+from sentence_transformers import SentenceTransformer, util
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +57,25 @@ class BenchmarkProcessor:
     STREAM_CHECK_DELAY: float = 0.1
     PROCESS_POLL_DELAY: float = 0.1
 
-    def __init__(self):
+    DEFAULT_EMBEDDING_MODEL = 'paraphrase-multilingual-MiniLM-L12-v2'  # Default model
+    DEFAULT_EMBEDDING_THRESHOLD = 0.45  # Default threshold
+
+    def __init__(self, embedding_model_name_or_path: str = None, embedding_model=None, embedding_threshold: float = None):
         """Initialize the processor"""
-        pass
+        if embedding_model is not None:
+            self.embedding_model = embedding_model
+        else:
+            model_name = (
+                embedding_model_name_or_path or
+                os.environ.get('EMBEDDING_MODEL_NAME_OR_PATH') or
+                self.DEFAULT_EMBEDDING_MODEL
+            )
+            self.embedding_model = SentenceTransformer(model_name)
+        # Threshold priority: argument > environment variable > default
+        if embedding_threshold is not None:
+            self.embedding_threshold = embedding_threshold
+        else:
+            self.embedding_threshold = float(os.environ.get('EMBEDDING_THRESHOLD', self.DEFAULT_EMBEDDING_THRESHOLD))
 
     async def async_process_app(self, command: List[str], app_config: Dict[str, Any], app_name: str, timeout: int = 60) -> Dict[str, Any]:
         """
@@ -421,12 +438,12 @@ class BenchmarkProcessor:
             logger.debug(f"Combined content for matching: {all_content}")
             logger.debug(f"Expected match: {expected_match}")
             
-            if expected_match and expected_match in all_content:
+            if expected_match and self.semantic_match_by_embedding(expected_match, all_content):
                 analysis["semantic_match"] = "yes"
-                logger.debug("Semantic match found")
+                logger.debug("Semantic match found (embedding)")
             else:
                 analysis["semantic_match"] = "no"
-                logger.debug("Semantic match not found")
+                logger.debug("Semantic match not found (embedding)")
 
         # Set tool usage status
         if has_tool_check:
@@ -484,3 +501,11 @@ class BenchmarkProcessor:
         )
         
         return analysis
+
+    def semantic_match_by_embedding(self, expected, actual, threshold=None):
+        if threshold is None:
+            threshold = self.embedding_threshold
+        emb_expected = self.embedding_model.encode(expected, convert_to_tensor=True)
+        emb_actual = self.embedding_model.encode(actual, convert_to_tensor=True)
+        sim = util.pytorch_cos_sim(emb_expected, emb_actual).item()
+        return sim >= threshold
