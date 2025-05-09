@@ -218,9 +218,3 @@ Arguments:
 - Reports include: model, test case, accuracy, response time, tool usage, etc.
 - Only one report file is generated: `report_YYYYMMDD_HHMMSS.md` (includes both summary and details)
 - Markdown reports saved in `reports/` with timestamp
-
----
-
-## 📝 Changelog
-
-- **2024-06**: Add async concurrent evaluation, async report generation, async config/test case loading, improved streaming output analysis, and embedding model support for semantic evaluation.
