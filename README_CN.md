@@ -85,6 +85,10 @@ mfcs-bench/
 | 响应时间            | 生成回答的平均耗时                         |
 | Token 使用量        | prompt 和 completion 的 token 消耗         |
 | 成功率              | 测试用例整体通过率                         |
+| Jaccard 相似度      | 衡量预测结果与期望结果集合的重叠程度        |
+| Embedding 语义匹配  | 使用 embedding 模型计算语义相似度           |
+
+> 注意：Jaccard 相似度和基于 Embedding 的语义匹配为二选一指标，实际评测时仅会根据配置使用其中一种。
 
 ---
 

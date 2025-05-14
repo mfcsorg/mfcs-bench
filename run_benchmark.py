@@ -45,19 +45,21 @@ class BenchmarkRunner:
         self.reports_dir = reports_dir
         self.embedding_model_name_or_path = embedding_model_name_or_path
         self.embedding_threshold = embedding_threshold
-        # 只加载一次 embedding_model
+        self.embedding_model = None
+        # Load embedding model only once
         model_name = (
             embedding_model_name_or_path or
-            os.environ.get('EMBEDDING_MODEL_NAME_OR_PATH') or
-            BenchmarkProcessor.DEFAULT_EMBEDDING_MODEL
+            os.environ.get('EMBEDDING_MODEL_NAME_OR_PATH')
         )
-        self.embedding_model = SentenceTransformer(model_name)
+        if model_name:
+            self.embedding_model = SentenceTransformer(model_name)
+
         self.load_config()
         
         # Ensure reports directory exists
         os.makedirs(self.reports_dir, exist_ok=True)
         # Load all model display names for all apps
-        self.model_display_names = {}  # {model_id: "model_id (中文名)"}
+        self.model_display_names = {}  # {model_id: "model_id (name)"}
         self._load_all_model_display_names()
 
     def _load_all_model_display_names(self):
@@ -107,7 +109,6 @@ class BenchmarkRunner:
         results = {}
         tasks = []
         task_map = {}  # task -> (app_name, model_name, test_case_file)
-        await self.async_load_config()
         for app_name, app_config in self.config.items():
             results[app_name] = {}
             # 1. Load all models

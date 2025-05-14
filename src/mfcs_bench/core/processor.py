@@ -57,20 +57,24 @@ class BenchmarkProcessor:
     STREAM_CHECK_DELAY: float = 0.1
     PROCESS_POLL_DELAY: float = 0.1
 
-    DEFAULT_EMBEDDING_MODEL = 'paraphrase-multilingual-MiniLM-L12-v2'  # Default model
     DEFAULT_EMBEDDING_THRESHOLD = 0.45  # Default threshold
 
     def __init__(self, embedding_model_name_or_path: str = None, embedding_model=None, embedding_threshold: float = None):
         """Initialize the processor"""
         if embedding_model is not None:
             self.embedding_model = embedding_model
+            self.use_embedding = True
         else:
             model_name = (
                 embedding_model_name_or_path or
-                os.environ.get('EMBEDDING_MODEL_NAME_OR_PATH') or
-                self.DEFAULT_EMBEDDING_MODEL
+                os.environ.get('EMBEDDING_MODEL_NAME_OR_PATH')
             )
-            self.embedding_model = SentenceTransformer(model_name)
+            if model_name:
+                self.embedding_model = SentenceTransformer(model_name)
+                self.use_embedding = True
+            else:
+                self.embedding_model = None
+                self.use_embedding = False
         # Threshold priority: argument > environment variable > default
         if embedding_threshold is not None:
             self.embedding_threshold = embedding_threshold
@@ -502,9 +506,23 @@ class BenchmarkProcessor:
         
         return analysis
 
+    @staticmethod
+    def jaccard_similarity(str1, str2):
+        set1 = set(str1.split())
+        set2 = set(str2.split())
+        if not set1 and not set2:
+            return 1.0
+        if not set1 or not set2:
+            return 0.0
+        return len(set1 & set2) / len(set1 | set2)
+
     def semantic_match_by_embedding(self, expected, actual, threshold=None):
         if threshold is None:
             threshold = self.embedding_threshold
+        if not self.use_embedding:
+            # Use Jaccard similarity
+            sim = self.jaccard_similarity(expected, actual)
+            return sim >= threshold
         emb_expected = self.embedding_model.encode(expected, convert_to_tensor=True)
         emb_actual = self.embedding_model.encode(actual, convert_to_tensor=True)
         sim = util.pytorch_cos_sim(emb_expected, emb_actual).item()

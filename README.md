@@ -89,10 +89,14 @@ mfcs-bench/
 | Response Time        | Average time taken to generate responses             |
 | Token Usage          | Prompt and completion token consumption              |
 | Success Rate         | Overall test case success percentage                 |
+| Jaccard Similarity   | Measures the overlap between predicted and expected sets |
+| Embedding-based Semantic Match | Measures semantic similarity using embedding models |
+
+> Note: Jaccard Similarity and Embedding-based Semantic Match are alternative metrics; only one is used at a time depending on configuration.
 
 ---
 
-## 🔍 Test Case Format
+## 📢 Test Case Format
 
 Test cases are defined in JSON format:
 

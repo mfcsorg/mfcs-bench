@@ -4,11 +4,6 @@
         "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "api_key": "sk-..."
     },
-    "ep-20250209175232-bh9dm": {
-        "name": "Doubao1.5-Pro",
-        "api_base": "https://ark.cn-beijing.volces.com/api/v3",
-        "api_key": "sk-..."
-    },
     "gpt-4.1-mini": {
         "name": "GPT-4.1 mini",
         "api_base": "https://api.openai.com/v1",
