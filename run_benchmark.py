@@ -226,7 +226,7 @@ class BenchmarkRunner:
                     await f.write(f"#### {test_case_file}\n\n")
                     await f.write(f"**Input**: `{json.dumps(test_case.get('input', {}), ensure_ascii=False)}`\n\n")
                     await f.write(f"**Expected Output**: \n```json\n{json.dumps(test_case.get('expected_output', {}), ensure_ascii=False, indent=2)}\n```\n\n")
-                    await f.write("**Actual Output**:\n```")
+                    await f.write("**Actual Output**:\n```\n")
                     if result.get("stdout"):
                         await f.write(result["stdout"])
                     await f.write("```\n\n")
